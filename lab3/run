@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+import sys
+from proxy import HTTPProxy
+
+def main():
+    # check that port num is provided
+    if len(sys.argv) != 2:
+        print("Usage: ./run <port>")
+        sys.exit(1)
+
+    # get port num
+    try:
+        port = int(sys.argv[1])
+        # check if port num is valid
+        if not (1024 <= port <= 65535):
+            raise ValueError("port num not within valid range")
+    except ValueError as e:
+        print(f"invalid port num : {e}")
+        sys.exit(1)
+
+    # start proxy
+    proxy = HTTPProxy(port=port)
+    try:
+        print(f"starting HTTP proxy on port {port}")
+        proxy.start()
+    except KeyboardInterrupt:
+        print("\n closing proxy")
+        sys.exit(0)
+
+if __name__ == "__main__":
+    main()
+    
