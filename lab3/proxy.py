@@ -9,7 +9,7 @@ HTTP_VERSION = "HTTP/1.0"
 class HTTPProxy:
     def __init__(self, host='127.0.0.1', port=1234):
         self.host = host
-        if port < 1024 or port > 65535: # invlaid port number
+        if port < 1024 or port > 65535: # invalid port number
             return
         self.port = port
         self.server_socket = None
@@ -19,13 +19,9 @@ class HTTPProxy:
         # self.server_socket.settimeout(10)
         self.server_socket.bind((self.host, self.port))
         self.server_socket.listen(5)
-        # debug
-        # print(f"proxy server started on {self.host}:{self.port}")
+
         while True:
-            client_socket, client_address = self.server_socket.accept()
-            # debug
-            # print(f"new connection from {client_address}")
-            
+            client_socket, client_address = self.server_socket.accept() 
             threading.Thread(target=self.handle_client, args=(client_socket,)).start()
 
     def log_request(self, method, uri):
@@ -41,17 +37,15 @@ class HTTPProxy:
             except UnicodeDecodeError:
                 request_decoded = request.decode('iso-8859-1')
             first_line = request_decoded.split('\r\n')[0]
-            
-            # debug
-            # print(f"Received request: {request_decoded}")
-            parts = first_line.split(' ', 2)
-            if len(parts) < 3:
-                client_socket.sendall(b"HTTP/1.0 400 Bad Request\r\n\r\n")
-                return
-            method, uri, _ = parts
-            # current_time = time.strftime("%d %b %H:%M:%S", time.localtime())
-            # print(f"{current_time} - >>> {method} {uri}")
-            self.log_request(method, uri)
+
+            # print log
+            # parts = first_line.split(' ', 2)
+            # if len(parts) < 3:
+            #     client_socket.sendall(b"HTTP/1.0 400 Bad Request\r\n\r\n")
+            #     return
+            # method, uri, _ = parts
+            # self.log_request(method, uri)
+            # print('log from handle_client')
             
             if first_line.startswith("CONNECT"):
                 self.handle_connect_request(client_socket, request_decoded)
@@ -66,6 +60,7 @@ class HTTPProxy:
         target_host, target_port = self.parse_port(request)
         try:
             self.log_request("CONNECT", f"{target_host}:{target_port}")
+            # print('log from handle_connect_request')
 
             target_socket = socket.create_connection((target_host, target_port))
             client_socket.sendall(b"HTTP/1.0 200 Connection Established\r\n\r\n")
@@ -94,24 +89,24 @@ class HTTPProxy:
     def handle_non_connect_request(self, client_socket, request):
         try:
             # parse host and port from headers      
-            host, port = self.parse_port(request)
-            if not host or not port:
-                print("Failed to extract host or port from request.")
+            result = self.parse_port(request)
+            if result is None or len(result) != 2:
+                # print("Failed to extract host or port from request.")
                 client_socket.sendall(b"HTTP/1.0 400 Bad Request\r\n\r\n")
                 return
+            host, port = result
             
+            # print log
             parts = request.split(' ', 2)
             if len(parts) < 3:
                 client_socket.sendall(b"HTTP/1.0 400 Bad Request\r\n\r\n")
                 return
             method, uri, _ = parts
             self.log_request(method, uri)
+            # print('log from handle_non_connect_request')
 
             # connect to origin server
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
-                # debug
-                # print(f"connecting to origin server at {host}:{port}")
-                
                 server_socket.connect((host, port))     # accepts tuple as argument
 
                 # modify HTTP headers
@@ -164,11 +159,11 @@ class HTTPProxy:
                     port = 80
                 else: port = 443
 
-            return host, port
+            return (host, port)
         
         except Exception as e:
             print(f"Error extracting host and port: {e}")
-            return None, None
+            return (None, None)
 
         
 if __name__ == "__main__":
