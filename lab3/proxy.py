@@ -7,37 +7,56 @@ BUFFER_SIZE = 4096
 HTTP_VERSION = "HTTP/1.0"
 
 class HTTPProxy:
-    def __init__(self, host='0.0.0.0', port=1234):
+    def __init__(self, host='127.0.0.1', port=1234):
         self.host = host
+        if port < 1024 or port > 65535: # invlaid port number
+            return
         self.port = port
         self.server_socket = None
 
     def start(self):
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # self.server_socket.settimeout(10)
         self.server_socket.bind((self.host, self.port))
         self.server_socket.listen(5)
         # debug
-        print(f"proxy server started on {self.host}:{self.port}")
+        # print(f"proxy server started on {self.host}:{self.port}")
         while True:
             client_socket, client_address = self.server_socket.accept()
             # debug
-            print(f"new connection from {client_address}")
+            # print(f"new connection from {client_address}")
             
             threading.Thread(target=self.handle_client, args=(client_socket,)).start()
 
+    def log_request(self, method, uri):
+        current_time = time.strftime("%d %b %H:%M:%S", time.localtime())
+        print(f"{current_time} - >>> {method} {uri}")
+
     def handle_client(self, client_socket):
+        client_socket.settimeout(10)
         try:
-            request = client_socket.recv(BUFFER_SIZE).decode('utf-8')
-            first_line = request.split('\r\n')[0]
+            request = client_socket.recv(BUFFER_SIZE)
+            try:
+                request_decoded = request.decode('utf-8')
+            except UnicodeDecodeError:
+                request_decoded = request.decode('iso-8859-1')
+            first_line = request_decoded.split('\r\n')[0]
             
             # debug
-            method, uri, _ = first_line.split(' ', 2)
-            print(f">>> {method} {uri}")
+            # print(f"Received request: {request_decoded}")
+            parts = first_line.split(' ', 2)
+            if len(parts) < 3:
+                client_socket.sendall(b"HTTP/1.0 400 Bad Request\r\n\r\n")
+                return
+            method, uri, _ = parts
+            # current_time = time.strftime("%d %b %H:%M:%S", time.localtime())
+            # print(f"{current_time} - >>> {method} {uri}")
+            self.log_request(method, uri)
             
             if first_line.startswith("CONNECT"):
-                self.handle_connect_request(client_socket, request)
+                self.handle_connect_request(client_socket, request_decoded)
             else:
-                self.handle_non_connect_request(client_socket, request)
+                self.handle_non_connect_request(client_socket, request_decoded)
         except Exception as e:
             print(f"Error: {e}")
         finally:
@@ -46,6 +65,8 @@ class HTTPProxy:
     def handle_connect_request(self, client_socket, request):
         target_host, target_port = self.parse_port(request)
         try:
+            self.log_request("CONNECT", f"{target_host}:{target_port}")
+
             target_socket = socket.create_connection((target_host, target_port))
             client_socket.sendall(b"HTTP/1.0 200 Connection Established\r\n\r\n")
             self.forward_data(client_socket, target_socket)
@@ -57,13 +78,17 @@ class HTTPProxy:
         while True:
             (readable,_ , _) = select.select(sockets, [], [])
             for sock in readable:
-                data = sock.recv(BUFFER_SIZE)
-                if not data:
-                    continue
-                if sock is client_socket:
-                    target_socket.send(data)
-                else:
-                    client_socket.send(data)
+                try:
+                    data = sock.recv(BUFFER_SIZE)
+                    if not data:
+                        return
+                    if sock is client_socket:
+                        target_socket.sendall(data)
+                    else:
+                        client_socket.sendall(data)
+                except Exception as e:
+                    sock.close()
+                    return
 
 
     def handle_non_connect_request(self, client_socket, request):
@@ -74,17 +99,18 @@ class HTTPProxy:
                 print("Failed to extract host or port from request.")
                 client_socket.sendall(b"HTTP/1.0 400 Bad Request\r\n\r\n")
                 return
-
-            # debug
-            request_line = request.split('\r\n')[0]
-            method, uri, _ = request_line.split(' ', 2)
-            current_time = time.strftime("%d %b %H:%M:%S", time.localtime())
-            print(f"{current_time} - >>> {method} {uri}")
+            
+            parts = request.split(' ', 2)
+            if len(parts) < 3:
+                client_socket.sendall(b"HTTP/1.0 400 Bad Request\r\n\r\n")
+                return
+            method, uri, _ = parts
+            self.log_request(method, uri)
 
             # connect to origin server
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
                 # debug
-                print(f"connecting to origin server at {host}:{port}")
+                # print(f"connecting to origin server at {host}:{port}")
                 
                 server_socket.connect((host, port))     # accepts tuple as argument
 
@@ -93,7 +119,7 @@ class HTTPProxy:
                 modified_request = modified_request.replace("Connection: keep-alive", "Connection: close")
 
                 # send modified request to server
-                server_socket.sendall(modified_request.encode('utf-8'))
+                server_socket.sendall(modified_request.encode('utf-8', errors='replace'))
 
                 # relay response back to client
                 while True:
