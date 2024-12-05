@@ -2,6 +2,7 @@ import socket
 import threading
 import select
 import time
+import os
 
 BUFFER_SIZE = 4096
 HTTP_VERSION = "HTTP/1.0"
@@ -9,8 +10,6 @@ HTTP_VERSION = "HTTP/1.0"
 class HTTPProxy:
     def __init__(self, host='127.0.0.1', port=1234):
         self.host = host
-        if port < 1024 or port > 65535: # invalid port number
-            return
         self.port = port
         self.server_socket = None
 
@@ -19,10 +18,18 @@ class HTTPProxy:
         # self.server_socket.settimeout(10)
         self.server_socket.bind((self.host, self.port))
         self.server_socket.listen(5)
-
         while True:
-            client_socket, client_address = self.server_socket.accept() 
-            threading.Thread(target=self.handle_client, args=(client_socket,)).start()
+            try:
+                client_socket, client_address = self.server_socket.accept() 
+                threading.Thread(target=self.handle_client, args=(client_socket,)).start()
+            except KeyboardInterrupt:
+                self.stop()
+                os._exit(0)
+            
+    def stop(self):
+        if self.server_socket:
+            self.server_socket.close()
+            print("Server socket closed")
 
     def log_request(self, method, uri):
         current_time = time.strftime("%d %b %H:%M:%S", time.localtime())
@@ -164,6 +171,7 @@ class HTTPProxy:
         except Exception as e:
             print(f"Error extracting host and port: {e}")
             return (None, None)
+
 
         
 if __name__ == "__main__":
